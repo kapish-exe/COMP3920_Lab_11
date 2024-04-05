@@ -12,9 +12,9 @@ const cloud_name = process.env.CLOUDINARY_CLOUD_NAME;
 
 const cloudinary = require('cloudinary');
 cloudinary.config({ 
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
-  api_key: process.env.CLOUDINARY_CLOUD_KEY,
-  api_secret: process.env.CLOUDINARY_CLOUD_SECRET
+	cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
+	api_key: process.env.CLOUDINARY_CLOUD_KEY,
+	api_secret: process.env.CLOUDINARY_CLOUD_SECRET
 });
 
 const multer  = require('multer')
@@ -37,7 +37,7 @@ router.get('/', async (req, res) => {
 
 
 	try {
-		const users = await userCollection.find().project({first_name: 1, last_name: 1, email: 1, _id: 1}).toArray();
+		const users = await userCollection.find().project({first_name: 1, last_name: 1, email: 1, _id: 1, image_id: 1}).toArray();
 
 		if (users === null) {
 			res.render('error', {message: 'Error connecting to MongoDB'});
@@ -60,25 +60,6 @@ router.get('/', async (req, res) => {
 	}
 });
 
-router.get('/pic', async (req, res) => {
-	  res.send('<form action="picUpload" method="post" enctype="multipart/form-data">'
-    + '<p>Public ID: <input type="text" name="title"/></p>'
-    + '<p>Image: <input type="file" name="image"/></p>'
-    + '<p><input type="submit" value="Upload"/></p>'
-    + '</form>');
-});
-
-router.post('/picUpload', upload.single('image'), function(req, res, next) {
-	let buf64 = req.file.buffer.toString('base64');
-  stream = cloudinary.uploader.upload("data:image/png;base64," + buf64, function(result) { //_stream
-    console.log(result);
-    res.send('Done:<br/> <img src="' + result.url + '"/><br/>' +
-             cloudinary.image(result.public_id, { format: "png", width: 100, height: 130, crop: "fit" }));
-  }, { public_id: req.body.title } );
-  console.log(req.body);
-  console.log(req.file);
-
-});
 
 function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
@@ -134,6 +115,59 @@ router.post('/setPetPic', upload.single('image'), function(req, res, next) {
 	console.log(req.body);
 	console.log(req.file);
 });
+
+router.post('/setUserPic', upload.single('image'), function(req, res, next) {
+	let image_uuid = uuid();
+	let user_id = req.body.user_id;
+	let buf64 = req.file.buffer.toString('base64');
+	stream = cloudinary.uploader.upload("data:image/octet-stream;base64," + buf64, async function(result) { 
+			try {
+				console.log(result);
+
+				console.log("userId: "+user_id);
+
+				const schema = Joi.object(
+					{
+						user_id: Joi.string().alphanum().min(24).max(24).required()
+					});
+					
+
+					const validationResult = schema.validate({user_id});
+					if (validationResult.error != null) {
+						console.log(validationResult.error);
+
+						res.render('error', {message: 'Invalid user_id'});
+						return;
+					}
+
+					const success = await userCollection.updateOne({"_id": new ObjectId(user_id)},
+						{$set: {image_id: image_uuid}},
+						{}
+					);
+
+					if (!success) {
+						res.render('error', {message: 'Error uploading user image to MongoDB'});
+						console.log("Error uploading user image");
+					}
+					else {
+						res.redirect(`/`);
+					}
+				}
+				catch(ex) {
+					res.render('error', {message: 'Error connecting to MongoDB'});
+					console.log("Error connecting to MongoDB");
+					console.log(ex);
+				}
+			},
+				{ public_id: image_uuid }
+	);
+	console.log(req.body);
+	console.log(req.file);
+});
+
+
+
+
 
 router.get('/showPets', async (req, res) => {
 	console.log("page hit");
@@ -248,6 +282,48 @@ router.get('/deletePetImage', async (req, res) => {
 			}
 		}
 		res.redirect(`/showPets?id=${user_id}`);
+	}
+	catch(ex) {
+		res.render('error', {message: 'Error connecting to MySQL'});
+		console.log("Error connecting to MySQL");
+		console.log(ex);	
+	}
+});
+
+router.get('/deleteUserPic', async (req, res) => {
+	try {
+		console.log("delete user image");
+
+		let user_id = req.query.id;
+
+		const schema = Joi.object(
+			{
+				user_id: Joi.string().alphanum().min(24).max(24).required()
+			});
+		
+		const validationResult = schema.validate({user_id});
+		if (validationResult.error != null) {
+			console.log(validationResult.error);
+
+			res.render('error', {message: 'Invalid user_id'});
+			return;
+		}				
+
+		if (user_id) {
+			console.log("userId: "+user_id);
+			const success = await userCollection.updateOne({"_id": new ObjectId(user_id)},
+				{$set: {image_id: undefined}},
+				{}
+			);
+
+			console.log("delete User Image: ");
+			console.log(success);
+			if (!success) {
+				res.render('error', {message: 'Error connecting to MySQL'});
+				return;
+			}
+		}
+		res.redirect(`/`);
 	}
 	catch(ex) {
 		res.render('error', {message: 'Error connecting to MySQL'});
